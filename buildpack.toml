@@ -1,0 +1,13 @@
+[buildpack]
+name = "PDFTK"
+version = "3.3.3"
+description = "Install PDFTK Java version"
+
+[[stacks]]
+id = "heroku-24"
+
+[[stacks]]
+id = "heroku-22"
+
+[[stacks]]
+id = "heroku-20"

@@ -1,16 +1,59 @@
 #!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir> <env-dir>
 
 set -e
+set -o pipefail
 
-mkdir -p "$1/bin/"
-cp -a binaries-$STACK/* "$1/bin/"
-show_version=$(LD_LIBRARY_PATH=$1/bin $1/bin/pdftk --version 2>&1 | tr '\n' ' ' )
-echo "-----> heroku-pdftk-buildpack: Installed to app/bin. ${show_version}"
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
+BUILDPACK_DIR=$(cd "$(dirname $0)"; cd ..; pwd)
 
-# Setting environment variables in .profile.d script (sourced at dyno startup)
-mkdir -p "$1/.profile.d/"
-cat <<EOF >"$1"/.profile.d/pdftk.sh
-export LD_LIBRARY_PATH="\$LD_LIBRARY_PATH:\$HOME/bin"
+function topic() {
+  echo "-----> $*"
+}
+
+function indent() {
+  c='s/^/       /'
+  case $(uname) in
+    Darwin) sed -l "$c";;
+    *)      sed -u "$c";;
+  esac
+}
+
+# Install Java
+topic "Installing OpenJDK"
+apt_deps="openjdk-17-jre-headless"
+for package in $apt_deps; do
+  if ! dpkg -s $package > /dev/null 2>&1; then
+    apt-get update -qq
+    apt-get install -qq -y --no-install-recommends $package
+  fi
+done
+
+# Create installation directory
+topic "Installing PDFTK"
+mkdir -p "$BUILD_DIR/vendor/pdftk"
+
+# Download and extract pre-built PDFTK
+PDFTK_VERSION="3.3.3"
+PDFTK_URL="https://gitlab.com/pdftk-java/pdftk/-/releases/v${PDFTK_VERSION}/downloads/pdftk-all.jar"
+
+curl -L "$PDFTK_URL" -o "$BUILD_DIR/vendor/pdftk/pdftk.jar"
+
+# Create wrapper script
+cat > "$BUILD_DIR/vendor/pdftk/pdftk" <<'EOF'
+#!/bin/bash
+java -jar "$(dirname "$0")/pdftk.jar" "$@"
 EOF
 
-exit 0
+chmod +x "$BUILD_DIR/vendor/pdftk/pdftk"
+
+# Create .profile.d script to add PDFTK to the PATH
+mkdir -p "$BUILD_DIR/.profile.d"
+cat > "$BUILD_DIR/.profile.d/pdftk.sh" <<EOF
+export PATH="\$PATH:/app/vendor/pdftk"
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+EOF
+
+topic "PDFTK installation completed"
